@@ -1,3 +1,97 @@
+# from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+# from fastapi.websockets import WebSocketState
+# import azure.cognitiveservices.speech as speechsdk
+# from dotenv import load_dotenv
+# import os
+# import asyncio
+# import logging
+
+# # Load environment variables from .env file
+# load_dotenv()
+
+# app = FastAPI()
+# logging.basicConfig(level=logging.INFO)
+
+# @app.websocket("/ws/recognize")
+# async def transcribe_audio(websocket: WebSocket):
+#     await websocket.accept()
+    
+#     # Send initial message immediately after accepting the connection
+#     await websocket.send_text("Listening for the trigger word...")
+
+#     speech_key = os.getenv('SPEECH_KEY')
+#     speech_region = os.getenv('SPEECH_REGION')
+
+#     if not speech_key or not speech_region:
+#         await websocket.send_text("SPEECH_KEY and/or SPEECH_REGION are not set in the environment variables.")
+#         await websocket.close()
+#         return
+
+#     speech_config = speechsdk.SpeechConfig(subscription=speech_key, region=speech_region)
+#     speech_config.speech_recognition_language = "en-US"
+
+#     audio_input = speechsdk.AudioConfig(use_default_microphone=True)
+#     speech_recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_input)
+
+#     logging.info("Speech recognition started.")
+
+#     should_stop_recording = False  # Flag to indicate if we should stop recording
+#     transcribing = False  # Flag to indicate if we are currently transcribing
+
+#     # This function handles recognized speech
+#     async def recognized_handler(evt):
+#         nonlocal should_stop_recording, transcribing
+        
+#         if evt.result.reason == speechsdk.ResultReason.RecognizedSpeech:
+#             recognized_text = evt.result.text
+#             logging.info(f"Recognized: {recognized_text}")
+
+#             # Check for the trigger word
+#             if "bob." in recognized_text.lower() and not transcribing:
+#                 transcribing = True  # Start transcribing
+#                 await websocket.send_text("Transcribing started.")
+#                 logging.info("Transcribing started.")
+
+#             # Send recognized text if transcribing
+#             if transcribing:
+#                 await websocket.send_text(recognized_text)
+
+#             # Stop recording if "terminate" or "stop" is recognized
+#             if recognized_text.lower() in ["terminate.", "stop."]:
+#                 should_stop_recording = True
+#                 await websocket.send_text("Transcribing stopped.")
+#                 logging.info("Stopping recording as 'terminate' or 'stop' was recognized.")
+
+#         elif evt.result.reason == speechsdk.ResultReason.NoMatch:
+#             logging.info("No speech could be recognized.")
+#         elif evt.result.reason == speechsdk.ResultReason.Canceled:
+#             logging.error("Speech recognition canceled.")
+
+#     # Subscribe to the recognized event
+#     speech_recognizer.recognized.connect(lambda evt: asyncio.run(recognized_handler(evt)))
+
+#     try:
+#         # Start continuous recognition
+#         speech_recognizer.start_continuous_recognition()
+
+#         # Keep the loop running until we receive a stop command
+#         while not should_stop_recording:
+#             await asyncio.sleep(0.5)  # Small delay to keep the loop running
+
+#     except WebSocketDisconnect:
+#         logging.info("WebSocket disconnected.")
+#     finally:
+#         # Stop recognition and close the websocket
+#         speech_recognizer.stop_continuous_recognition()
+#         if websocket.client_state == WebSocketState.CONNECTED:
+#             await websocket.close()
+#         logging.info("Speech recognition stopped.")
+
+# if __name__ == "__main__":
+#     import uvicorn
+#     # Start the server on localhost at port 8000
+#     uvicorn.run(app, host="127.0.0.1", port=8000)
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.websockets import WebSocketState
 import azure.cognitiveservices.speech as speechsdk
@@ -30,26 +124,33 @@ async def transcribe_audio(websocket: WebSocket):
     audio_input = speechsdk.AudioConfig(use_default_microphone=True)
     speech_recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_input)
 
-    await websocket.send_text("Ready to receive audio.")
+    await websocket.send_text("Listening for the trigger word...")
     logging.info("Speech recognition started.")
 
-    should_stop_recording = False  # Flag to indicate if we should stop recording
+    should_start_recording = False  # Flag to indicate if we should start recording
 
     # This function handles recognized speech
     async def recognized_handler(evt):
-        nonlocal should_stop_recording
+        nonlocal should_start_recording
         
         if evt.result.reason == speechsdk.ResultReason.RecognizedSpeech:
             recognized_text = evt.result.text
             logging.info(f"Recognized: {recognized_text}")
             
-            # Send recognized text only if we are not stopping
-            if not should_stop_recording:
-                await websocket.send_text(recognized_text)  # Await the send_text coroutine
+            if should_start_recording:
+                await websocket.send_text(recognized_text)  # Send recognized text if recording is active
 
+            # Start recording when the trigger word is detected
+            if "bob" in recognized_text.lower():  # Check for the trigger word
+                should_start_recording = True
+                await websocket.send_text("Trigger word detected. Starting transcription...")
+
+            # Stop recording when 'Terminate' or 'Stop' is recognized
             if recognized_text in ["Terminate.", "Stop."]:
-                should_stop_recording = True
-                logging.info("Stopping recording as 'terminate' or 'stop' was recognized.")
+                should_start_recording = False  # Stop recording
+                await websocket.send_text("Stopping recording as 'terminate' or 'stop' was recognized.")
+                # Stop the recognizer after termination
+                speech_recognizer.stop_continuous_recognition()
 
     # Subscribe to the recognized event
     speech_recognizer.recognized.connect(lambda evt: asyncio.run(recognized_handler(evt)))
@@ -58,23 +159,18 @@ async def transcribe_audio(websocket: WebSocket):
         # Start continuous recognition
         speech_recognizer.start_continuous_recognition()
 
-        # Keep the loop running until we receive a stop command
-        while not should_stop_recording:
-            await asyncio.sleep(0.5)  # Small delay to keep the loop running
+        while True:
+            await asyncio.sleep(0.5)  # Keep the loop running
 
     except WebSocketDisconnect:
         logging.info("WebSocket disconnected.")
     finally:
         # Stop recognition and close the websocket
         speech_recognizer.stop_continuous_recognition()
-        if websocket.client_state == WebSocketState.CONNECTED:
-            await websocket.close()
+        await websocket.close()  # Ensure the WebSocket is closed
         logging.info("Speech recognition stopped.")
 
 if __name__ == "__main__":
     import uvicorn
     # Start the server on localhost at port 8000
     uvicorn.run(app, host="127.0.0.1", port=8000)
-
-
-
