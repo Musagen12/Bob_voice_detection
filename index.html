@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Transcription</title>
+</head>
+<body>
+    <h1>Audio Transcription</h1>
+    <button id="start-button">Start Conversation</button>
+    <div id="transcription"></div>
+
+    <script>
+        const startButton = document.getElementById('start-button');
+        const transcriptionDiv = document.getElementById('transcription');
+        let websocket;
+
+        startButton.onclick = () => {
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                console.log("Already connected.");
+                return;
+            }
+
+            // Connect to the WebSocket server
+            websocket = new WebSocket('ws://localhost:8000/ws/recognize');
+
+            websocket.onopen = () => {
+                console.log("WebSocket connection established.");
+                startRecording(); // Start recording audio here
+            };
+
+            websocket.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                if (message.transcription) {
+                    // Update the transcription display
+                    transcriptionDiv.innerHTML += `<p>${message.transcription}</p>`;
+                }
+            };
+
+            websocket.onclose = () => {
+                console.log("WebSocket connection closed.");
+                stopRecording(); // Stop recording audio here
+            };
+
+            websocket.onerror = (error) => {
+                console.error("WebSocket error:", error);
+            };
+        };
+
+        function startRecording() {
+            // Your code to start audio recording
+            console.log("Recording started...");
+            // Example: Start the audio recording process here
+        }
+
+        function stopRecording() {
+            // Your code to stop audio recording
+            console.log("Recording stopped.");
+            // Example: Stop the audio recording process here
+        }
+    </script>
+</body>
+</html>
