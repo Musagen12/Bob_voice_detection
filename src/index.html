@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Voice Assistant</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        #recognized-messages {
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-top: 10px;
+            height: 300px; /* Increased height for better visibility */
+            overflow-y: auto;
+            background-color: #f9f9f9;
+        }
+        /* Color for recognized speech */
+        .recognized {
+            color: blue; /* Blue for recognized queries */
+            margin: 5px 0;
+        }
+        /* Color for LLM responses */
+        .response {
+            color: green; /* Green for LLM responses */
+            margin: 5px 0;
+        }
+        .status {
+            margin-top: 10px;
+            color: green;
+        }
+        .error {
+            color: red;
+        }
+    </style>
+</head>
+<body>
+    <h1>LLM Voice Assistant</h1>
+
+    <!-- Status of WebSocket connection -->
+    <div id="status" class="status">WebSocket not connected</div>
+
+    <!-- Div to display recognized messages and responses -->
+    <h2>Conversation</h2>
+    <div id="recognized-messages">Conversation will appear here.</div>
+
+    <script>
+        const recognizedMessagesDiv = document.getElementById('recognized-messages');
+        const statusDiv = document.getElementById('status');
+
+        let speechSocket;
+        let llmSocket;
+        let isProcessing = false;
+
+        // Function to start the speech WebSocket
+        const startSpeechWebSocket = () => {
+            speechSocket = new WebSocket('ws://127.0.0.1:8000/ws/recognize');
+
+            speechSocket.onopen = () => {
+                console.log('Speech WebSocket connected.');
+                statusDiv.textContent = 'Listening for voice commands...';
+            };
+
+            speechSocket.onmessage = (event) => {
+                const recognizedText = event.data;
+
+                // Display recognized text in blue
+                recognizedMessagesDiv.innerHTML += `<p class="recognized">${recognizedText}</p>`;
+                recognizedMessagesDiv.scrollTop = recognizedMessagesDiv.scrollHeight;
+
+                // Check for the trigger word
+                if (recognizedText.startsWith("Trigger word detected")) {
+                    isProcessing = true; // Set processing flag
+                } else if (isProcessing) {
+                    recognizedMessagesDiv.innerHTML += `<p class="recognized">Processing input: ${recognizedText}</p>`;
+                    recognizedMessagesDiv.scrollTop = recognizedMessagesDiv.scrollHeight;
+
+                    // Send the recognized query to the LLM
+                    sendToLLM(recognizedText);
+                }
+            };
+
+            speechSocket.onclose = () => {
+                console.log('Speech WebSocket disconnected.');
+                statusDiv.textContent = 'Speech WebSocket disconnected';
+                statusDiv.className = 'status error';
+            };
+
+            speechSocket.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                statusDiv.textContent = 'Speech WebSocket error occurred';
+                statusDiv.className = 'status error';
+            };
+        };
+
+        // Function to send a query to the LLM server
+        const sendToLLM = (query) => {
+            // Close any existing LLM WebSocket if it's open
+            if (llmSocket) {
+                llmSocket.close();
+            }
+
+            llmSocket = new WebSocket('ws://127.0.0.1:8001/ws/llm_response');
+
+            llmSocket.onopen = () => {
+                console.log('LLM WebSocket connected.');
+                llmSocket.send(query); // Send the captured user query to the LLM
+            };
+
+            llmSocket.onmessage = (event) => {
+                const responseData = event.data;
+                console.log('Received from LLM:', responseData);
+
+                // Append the LLM response to the recognized messages div in green
+                recognizedMessagesDiv.innerHTML += `<p class="response">${responseData}</p>`;
+                recognizedMessagesDiv.scrollTop = recognizedMessagesDiv.scrollHeight; // Scroll to the latest response
+
+                // Reset processing flag
+                isProcessing = false;
+            };
+
+            llmSocket.onclose = () => {
+                console.log('LLM WebSocket disconnected.');
+            };
+
+            llmSocket.onerror = (error) => {
+                console.error('LLM WebSocket error:', error);
+                recognizedMessagesDiv.innerHTML += `<p class="error">Error in receiving LLM response.</p>`;
+                recognizedMessagesDiv.scrollTop = recognizedMessagesDiv.scrollHeight; // Scroll to show error message
+            };
+        };
+
+        // Automatically start the WebSocket connections when the page loads
+        window.onload = () => {
+            startSpeechWebSocket();  // Start the speech recognition WebSocket
+        };
+    </script>
+</body>
+</html>
